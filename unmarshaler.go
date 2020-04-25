@@ -9,8 +9,8 @@ import (
 	"strings"
 )
 
-type Parser interface {
-	Parse(string) error
+type Unmarshaler interface {
+	Unmarshal(string) error
 }
 
 type StringHeader struct {
@@ -38,7 +38,7 @@ type ContentType struct {
 
 func NewContentType(s string) (*ContentType, error) {
 	h := &ContentType{}
-	err := h.Parse(s)
+	err := h.Unmarshal(s)
 	if err != nil {
 		return nil, err
 	}
@@ -46,7 +46,7 @@ func NewContentType(s string) (*ContentType, error) {
 	return h, nil
 }
 
-func (h *ContentType) Parse(s string) error {
+func (h *ContentType) Unmarshal(s string) error {
 	parts := strings.Split(s, ";")
 	if len(parts) == 0 {
 		return nil
@@ -88,7 +88,7 @@ type ContentDisposition struct {
 
 func NewContentDisposition(s string) (*ContentDisposition, error) {
 	h := &ContentDisposition{}
-	err := h.Parse(s)
+	err := h.Unmarshal(s)
 	if err != nil {
 		return nil, err
 	}
@@ -96,7 +96,7 @@ func NewContentDisposition(s string) (*ContentDisposition, error) {
 	return h, nil
 }
 
-func (h *ContentDisposition) Parse(s string) error {
+func (h *ContentDisposition) Unmarshal(s string) error {
 	parts := strings.Split(s, ";")
 	if len(parts) == 0 {
 		return nil
@@ -127,7 +127,7 @@ func (h *ContentDisposition) Parse(s string) error {
 	return nil
 }
 
-func Parse(headers http.Header, dst interface{}) error {
+func Unmarshal(headers http.Header, dst interface{}) error {
 	rv := reflect.ValueOf(dst)
 	if rv.Kind() != reflect.Ptr || rv.IsNil() {
 		return errors.New("cannot parse")
@@ -137,18 +137,27 @@ func Parse(headers http.Header, dst interface{}) error {
 	for i := 0; i < rt.NumField(); i++ {
 		fieldType := rt.FieldByIndex([]int{i})
 		fieldVal := rv.Elem().FieldByIndex([]int{i})
-		headerKey := fieldType.Tag.Get("header")
-		switch headerKey {
-		case "content-type":
-			c, _ := NewContentType(headers[headerKey][0])
-			fieldVal.Set(reflect.ValueOf(*c))
-		case "content-disposition":
-			c, _ := NewContentDisposition(headers[headerKey][0])
-			fieldVal.Set(reflect.ValueOf(*c))
-		case "server":
-			c := NewServer(headers[headerKey][0])
-			fieldVal.Set(reflect.ValueOf(*c))
+
+		if fieldVal.Kind() == reflect.Ptr && fieldVal.IsNil() {
+			fieldVal.Set(reflect.New(fieldVal.Type().Elem()))
 		}
+
+		if fieldVal.Kind() == reflect.Ptr {
+			if p, ok := fieldVal.Interface().(Unmarshaler); ok {
+				headerKey := fieldType.Tag.Get("header")
+				if err := p.Unmarshal(headers[headerKey][0]); err != nil {
+					return err
+				}
+			}
+		} else {
+			if p, ok := fieldVal.Addr().Interface().(Unmarshaler); ok {
+				headerKey := fieldType.Tag.Get("header")
+				if err := p.Unmarshal(headers[headerKey][0]); err != nil {
+					return err
+				}
+			}
+		}
+
 	}
 
 	return nil
@@ -158,6 +167,7 @@ type Headers struct {
 	ContentType        ContentType        `header:"content-type"`
 	ContentDisposition ContentDisposition `header:"content-disposition"`
 	Server             Server             `header:"server"`
+	MyHeader           string             `header:"x-my-header"`
 }
 
 func main() {
@@ -167,7 +177,7 @@ func main() {
 		"content-disposition": []string{`form-data; name="fieldName"; filename="filename.jpg"`},
 		"server":              []string{"Apache"},
 	}
-	err := Parse(h, &headers)
+	err := Unmarshal(h, &headers)
 	if err != nil {
 		log.Fatal(err)
 	}
