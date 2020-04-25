@@ -6,6 +6,7 @@ import (
 	"log"
 	"net/http"
 	"reflect"
+	"strconv"
 	"strings"
 )
 
@@ -135,39 +136,40 @@ func Unmarshal(headers http.Header, dst interface{}) error {
 
 	rt := reflect.TypeOf(dst).Elem()
 	for i := 0; i < rt.NumField(); i++ {
-		fieldType := rt.FieldByIndex([]int{i})
-		fieldVal := rv.Elem().FieldByIndex([]int{i})
+		fv := rv.Elem().Field(i)
 
-		if fieldVal.Kind() == reflect.Ptr && fieldVal.IsNil() {
-			fieldVal.Set(reflect.New(fieldVal.Type().Elem()))
+		if fv.Kind() == reflect.Ptr && fv.IsNil() {
+			fv.Set(reflect.New(fv.Type().Elem()))
 		}
 
-		if fieldVal.Kind() == reflect.Ptr {
-			if p, ok := fieldVal.Interface().(Unmarshaler); ok {
-				headerKey := fieldType.Tag.Get("header")
-				if err := p.Unmarshal(headers[headerKey][0]); err != nil {
-					return err
-				}
-			}
-		} else {
-			if p, ok := fieldVal.Addr().Interface().(Unmarshaler); ok {
-				headerKey := fieldType.Tag.Get("header")
-				if err := p.Unmarshal(headers[headerKey][0]); err != nil {
-					return err
-				}
-			}
+		if fv.Kind() != reflect.Ptr {
+			fv = fv.Addr()
 		}
 
+		headerKey := rt.Field(i).Tag.Get("header")
+		if p, ok := fv.Interface().(Unmarshaler); ok {
+			if err := p.Unmarshal(headers[headerKey][0]); err != nil {
+				return err
+			}
+		} else if fv.Elem().Kind() == reflect.String {
+			fv.Elem().Set(reflect.ValueOf(headers[headerKey][0]))
+		} else if fv.Elem().Kind() == reflect.Int {
+			val, err := strconv.Atoi(headers[headerKey][0])
+			if err != nil {
+				return err
+			}
+			fv.Elem().Set(reflect.ValueOf(val))
+		}
 	}
 
 	return nil
 }
 
 type Headers struct {
-	ContentType        ContentType        `header:"content-type"`
+	ContentType        *ContentType       `header:"content-type"`
 	ContentDisposition ContentDisposition `header:"content-disposition"`
-	Server             Server             `header:"server"`
-	MyHeader           string             `header:"x-my-header"`
+	Server             string             `header:"server"`
+	ContentLength      int                `header:"content-length"`
 }
 
 func main() {
@@ -176,6 +178,7 @@ func main() {
 		"content-type":        []string{"application/json; charset=utf-8"},
 		"content-disposition": []string{`form-data; name="fieldName"; filename="filename.jpg"`},
 		"server":              []string{"Apache"},
+		"content-length":      []string{"1234"},
 	}
 	err := Unmarshal(h, &headers)
 	if err != nil {
