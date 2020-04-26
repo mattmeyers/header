@@ -2,25 +2,29 @@ package header
 
 import (
 	"errors"
+	"net/http"
 	"strings"
 )
 
-type StringHeader string
+// Merge combines a list of header maps into a single map.
+func Merge(headers ...http.Header) http.Header {
+	if len(headers) == 0 {
+		return make(http.Header)
+	}
 
-// func (h *StringHeader) Unmarshal(s string) error {
-// 	h.Value = s
-// 	return nil
-// }
+	out := headers[0]
+	for _, h := range headers[1:] {
+		for k, v := range h {
+			if _, ok := out[k]; !ok {
+				out[k] = v
+			} else {
+				out[k] = append(out[k], v...)
+			}
+		}
+	}
 
-type Server string
-
-func NewServer(s string) Server { return Server(s) }
-
-func (h *Server) UnmarshalHeader(s string) error { *h = Server(s); return nil }
-
-func (h Server) String() string { return string(h) }
-
-func (h Server) MarshalHeader() (string, error) { return h.String(), nil }
+	return out
+}
 
 type ContentType struct {
 	MediaType string
@@ -66,6 +70,13 @@ func (h *ContentType) UnmarshalHeader(s string) error {
 	}
 
 	return nil
+}
+
+func (h ContentType) MarshalHeader() (string, error) {
+	if h.MediaType == "" {
+		return "", errors.New("media type cannot be empty")
+	}
+	return h.String(), nil
 }
 
 func (h ContentType) String() string {
