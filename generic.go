@@ -2,6 +2,12 @@ package header
 
 import "strconv"
 
+type String string
+
+func (h *String) UnmarshalHeader(s string) error { *h = String(s); return nil }
+
+func (h String) String() string { return string(h) }
+
 type Int int
 
 func (h *Int) UnmarshalHeader(s string) error {
@@ -14,7 +20,3 @@ func (h *Int) UnmarshalHeader(s string) error {
 }
 
 func (h Int) String() string { return strconv.Itoa(int(h)) }
-
-type ContentLength struct{ Int }
-
-func NewContentLength(i int) ContentLength { return ContentLength{Int(i)} }
